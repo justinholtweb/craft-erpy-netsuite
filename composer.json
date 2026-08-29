@@ -1,0 +1,54 @@
+{
+    "name": "justinholtweb/craft-erpy-netsuite",
+    "description": "Oracle NetSuite connector for Erpy.",
+    "version": "5.0.0",
+    "type": "craft-plugin",
+    "keywords": [
+        "craftcms",
+        "craft-plugin",
+        "craft-commerce",
+        "erpy",
+        "erp",
+        "netsuite",
+        "oracle",
+        "suitetalk",
+        "integration"
+    ],
+    "license": "proprietary",
+    "authors": [
+        {
+            "name": "Justin Holt",
+            "homepage": "https://justinholt.com"
+        }
+    ],
+    "support": {
+        "email": "justin@justinholt.com"
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "require": {
+        "php": "^8.2",
+        "craftcms/cms": "^5.3.0",
+        "justinholtweb/craft-erpy": "^5.0.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "justinholtweb\\erpynetsuite\\": "src/"
+        }
+    },
+    "config": {
+        "allow-plugins": {
+            "craftcms/plugin-installer": true,
+            "yiisoft/yii2-composer": true
+        }
+    },
+    "extra": {
+        "name": "Erpy for NetSuite",
+        "handle": "erpy-netsuite",
+        "developer": "Justin Holt",
+        "developerUrl": "https://justinholt.com",
+        "documentationUrl": "https://github.com/justinholtweb/craft-erpy-netsuite/blob/main/README.md",
+        "changelogUrl": "https://raw.githubusercontent.com/justinholtweb/craft-erpy-netsuite/main/CHANGELOG.md",
+        "class": "justinholtweb\\erpynetsuite\\Plugin"
+    }
+}
