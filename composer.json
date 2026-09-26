@@ -15,6 +15,7 @@
         "integration"
     ],
     "license": "proprietary",
+    "homepage": "https://justinholt.com/plugins/craft-erpy",
     "authors": [
         {
             "name": "Justin Holt",
@@ -22,7 +23,10 @@
         }
     ],
     "support": {
-        "email": "justin@justinholt.com"
+        "email": "justin@justinholt.com",
+        "docs": "https://justinholt.com/plugins/craft-erpy/docs/netsuite",
+        "source": "https://github.com/justinholtweb/craft-erpy-netsuite",
+        "issues": "https://github.com/justinholtweb/craft-erpy-netsuite/issues"
     },
     "minimum-stability": "stable",
     "prefer-stable": true,
@@ -47,7 +51,7 @@
         "handle": "erpy-netsuite",
         "developer": "Justin Holt",
         "developerUrl": "https://justinholt.com",
-        "documentationUrl": "https://github.com/justinholtweb/craft-erpy-netsuite/blob/main/README.md",
+        "documentationUrl": "https://justinholt.com/plugins/craft-erpy/docs/netsuite",
         "changelogUrl": "https://raw.githubusercontent.com/justinholtweb/craft-erpy-netsuite/main/CHANGELOG.md",
         "class": "justinholtweb\\erpynetsuite\\Plugin"
     }

@@ -1,6 +1,6 @@
 # Erpy for NetSuite
 
-An **[Erpy](https://github.com/justinholtweb/craft-erpy)** connector for Oracle NetSuite.
+An **[Erpy](https://justinholt.com/plugins/craft-erpy)** connector for Oracle NetSuite.
 
 Free. Erpy itself is the paid part — it owns the sync engine, the identity map, the field
 mapping, the queue, the dead letters and the log. This package's whole job is to translate one
@@ -41,6 +41,12 @@ Correct it on the mapping screen: a rule whose target is a canonical field (`sku
 `customerCode`) overrides what the connector read, before anything reaches Commerce. No fork,
 no wait for a release.
 
+## Documentation
+
+The full documentation for this add-on is at
+https://justinholt.com/plugins/craft-erpy/docs/netsuite, and Erpy's own is at
+https://justinholt.com/plugins/craft-erpy/docs.
+
 ## Requirements
 
 Craft CMS 5.3+, Craft Commerce 5.0+, PHP 8.2+, and Erpy 5.0+.
@@ -48,3 +54,8 @@ Craft CMS 5.3+, Craft Commerce 5.0+, PHP 8.2+, and Erpy 5.0+.
 ## Support
 
 justin@justinholt.com
+
+## License
+
+The Craft License. See `LICENSE.md`. Erpy for NetSuite is free: no editions and no licence key of its own.
+It needs a licensed copy of [Erpy](https://justinholt.com/plugins/craft-erpy), which is the paid part.

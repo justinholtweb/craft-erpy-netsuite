@@ -43,8 +43,15 @@ use justinholtweb\erpy\models\canonical\ErpStock;
  * read in bulk here goes through **SuiteQL** instead, which returns whole rows in pages of a
  * thousand.
  *
- * And its account id appears in three different spellings — lower-case with a hyphen in the host
- * name, upper-case with an underscore in the OAuth realm. Both are derived from one setting here.
+ * And its account id is spelled two ways: `1234567_SB1` in the UI and in the OAuth realm, and
+ * `1234567-sb1` — lower case, hyphenated — in every host name. Both are derived from the one
+ * setting here, which accepts either spelling.
+ *
+ * Two further choices are deliberate. Nothing here reads a custom field unless the merchant names
+ * one in settings: SuiteQL refuses an entire query over a single unknown column, so a field this
+ * connector invented would fail the first sync on every account that had not created it. Order
+ * statuses are matched by `externalId`, which the push itself sets. And stock is always read in
+ * full, because NetSuite keeps no modified date for a stock level — see `fetchInventory()`.
  */
 class NetSuiteConnector extends Connector
 {
@@ -90,7 +97,8 @@ class NetSuiteConnector extends Connector
             ->supports(Entity::CUSTOMER, Direction::PULL, delta: true, pageSize: self::SUITEQL_MAX)
             ->supports(Entity::PRODUCT, Direction::PULL, delta: true, pageSize: self::SUITEQL_MAX)
             ->supports(Entity::PRICE, Direction::PULL, delta: false, pageSize: self::SUITEQL_MAX)
-            ->supports(Entity::INVENTORY, Direction::PULL, delta: true, pageSize: self::SUITEQL_MAX)
+            // No delta: a stock level has no modified date of its own. See fetchInventory().
+            ->supports(Entity::INVENTORY, Direction::PULL, delta: false, pageSize: self::SUITEQL_MAX)
             ->supports(Entity::ORDER, Direction::PUSH)
             ->supports(Entity::ORDER_STATUS, Direction::PULL, delta: true, pageSize: self::SUITEQL_MAX)
             ->supports(Entity::SHIPMENT, Direction::PULL, delta: true, pageSize: self::SUITEQL_MAX)
@@ -131,6 +139,14 @@ class NetSuiteConnector extends Connector
             Field::text('itemTypes', Craft::t('erpy', 'Item types to sync'), [
                 'default' => 'InvtPart,NonInvtPart,Assembly,Kit',
                 'instructions' => Craft::t('erpy', 'NetSuite item types, comma separated. Service and other non-sellable types are usually best left out.'),
+            ]),
+            Field::text('categoryField', Craft::t('erpy', 'Item category field'), [
+                'placeholder' => 'custitem_web_category',
+                'instructions' => Craft::t('erpy', 'The id of a custom item field holding the product category, if you have one. Leave blank and no category is read — NetSuite refuses a whole query that names a field the account does not have.'),
+            ]),
+            Field::text('orderReferenceField', Craft::t('erpy', 'Order reference field'), [
+                'placeholder' => 'custbody_web_order_number',
+                'instructions' => Craft::t('erpy', 'Orders Erpy creates are matched by their External ID. Only name a custom transaction body field here if another integration also raises web orders and keeps the Commerce order number in it.'),
             ]),
             Field::boolean('orderApproved', Craft::t('erpy', 'Create orders already approved'), [
                 'instructions' => Craft::t('erpy', 'Off means orders land pending approval, which is what most finance teams want to start with.'),
@@ -207,9 +223,11 @@ class NetSuiteConnector extends Connector
     {
         $types = $this->quotedList((string)$this->setting('itemTypes', 'InvtPart,NonInvtPart,Assembly,Kit'));
 
+        $category = $this->customField('categoryField', 'custitem');
+        $categoryColumn = $category !== null ? ", i.$category AS category" : '';
+
         $sql = "SELECT i.id, i.itemid, i.displayname, i.salesdescription, i.itemtype, i.isinactive,
-                       i.upccode, i.baseunit, i.weight, i.weightunit, i.lastmodifieddate,
-                       i.custitem_erp_category AS category
+                       i.upccode, i.baseunit, i.weight, i.weightunit, i.lastmodifieddate$categoryColumn
                 FROM item i
                 WHERE i.itemtype IN ($types)";
 
@@ -240,16 +258,23 @@ class NetSuiteConnector extends Connector
         $location = (string)$this->setting('locationId', '');
         $where = $location !== '' ? "AND il.location = " . (int)$location : '';
 
+        // Always a full read. NetSuite keeps no modified date for a stock level: a receipt, a
+        // fulfilment or an adjustment changes `inventoryitemlocations` without touching the
+        // item's `lastmodifieddate`, and neither that table nor `inventorybalance` has a date of
+        // its own. Inferring changes from transactions' modified dates misses a deleted receipt
+        // and a commitment released by a closed order, so it is not attempted: a slower sync
+        // costs pages of a thousand rows, a missed movement costs a wrong stock figure.
+        //
         // `quantityavailable` is NetSuite's own availability figure — on hand less what is
         // already committed to somebody else's order. It is the number worth showing a customer,
         // and computing it ourselves from on-hand would overstate stock on every busy SKU.
         $sql = "SELECT i.itemid, i.id, il.quantityonhand, il.quantityavailable,
-                       il.quantitybackordered, il.quantityonorder, il.location, i.lastmodifieddate
+                       il.quantitybackordered, il.quantityonorder, il.location
                 FROM item i
                 INNER JOIN inventoryitemlocations il ON il.item = i.id
                 WHERE 1 = 1 $where";
 
-        return $this->queryPage($sql, 'i.lastmodifieddate', $criteria, Entity::INVENTORY, function(array $row): ErpStock {
+        return $this->queryPage($sql, null, $criteria, Entity::INVENTORY, function(array $row): ErpStock {
             return new ErpStock([
                 'sku' => (string)($row['itemid'] ?? ''),
                 'warehouse' => isset($row['location']) ? (string)$row['location'] : null,
@@ -257,7 +282,6 @@ class NetSuiteConnector extends Connector
                 'available' => isset($row['quantityavailable']) ? (float)$row['quantityavailable'] : null,
                 'incoming' => isset($row['quantityonorder']) ? (float)$row['quantityonorder'] : null,
                 'remoteId' => (string)($row['id'] ?? ''),
-                'modifiedAt' => $this->date($row['lastmodifieddate'] ?? null),
                 'raw' => $row,
             ]);
         });
@@ -344,8 +368,12 @@ class NetSuiteConnector extends Connector
 
     protected function fetchOrderStatuses(FetchCriteria $criteria): Page
     {
-        $sql = "SELECT t.id, t.tranid, t.otherrefnum, t.custbody_erpy_reference AS reference,
-                       t.status, t.lastmodifieddate, t.externalid
+        // `externalid` is what the push sets and what matches a status back to its Commerce order.
+        // A custom reference field is read only when the merchant has named one.
+        $reference = $this->customField('orderReferenceField', 'custbody');
+        $referenceColumn = $reference !== null ? ", t.$reference AS reference" : '';
+
+        $sql = "SELECT t.id, t.tranid, t.otherrefnum, t.status, t.lastmodifieddate, t.externalid$referenceColumn
                 FROM transaction t
                 WHERE t.type = 'SalesOrd'";
 
@@ -356,7 +384,7 @@ class NetSuiteConnector extends Connector
             $status = strtoupper((string)($row['status'] ?? ''));
 
             return new ErpOrderStatus([
-                'orderNumber' => (string)($row['externalid'] ?: $row['otherrefnum'] ?? ''),
+                'orderNumber' => (string)(($row['externalid'] ?? null) ?: ($row['reference'] ?? null) ?: ($row['otherrefnum'] ?? '')),
                 'status' => $status,
                 'statusCode' => $status,
                 'isOnHold' => $status === 'A',
@@ -624,6 +652,30 @@ class NetSuiteConnector extends Connector
     // ---------------------------------------------------------------------------------------
     // Plumbing
     // ---------------------------------------------------------------------------------------
+
+    /**
+     * A custom field id the merchant named in settings, or null when they named none.
+     *
+     * It is interpolated into SuiteQL, so it has to look like a NetSuite script id — `custitem_…`
+     * or `custbody_…` — and nothing else. Anything that does not is ignored with a warning rather
+     * than sent, because the alternative is a query NetSuite refuses outright.
+     */
+    private function customField(string $setting, string $prefix): ?string
+    {
+        $id = strtolower(trim((string)$this->setting($setting, '')));
+
+        if ($id === '') {
+            return null;
+        }
+
+        if (!preg_match('/^' . $prefix . '[a-z0-9_]+$/', $id)) {
+            Craft::warning(sprintf('Erpy NetSuite: ignored the %s setting, “%s” is not a %s… field id.', $setting, $id, $prefix), 'erpy');
+
+            return null;
+        }
+
+        return $id;
+    }
 
     /**
      * SuiteQL returns column names in whatever case the query used; normalising here means the
